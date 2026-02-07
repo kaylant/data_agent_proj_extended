@@ -1,0 +1,19 @@
+.env
+data/
+*.parquet
+
+# Streamlit
+.streamlit/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Testing
+.pytest_cache/
