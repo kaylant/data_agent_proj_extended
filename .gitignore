@@ -2,9 +2,6 @@
 data/
 *.parquet
 
-# Streamlit
-.streamlit/
-
 # Python
 __pycache__/
 *.py[cod]
@@ -17,3 +14,7 @@ venv/
 
 # Testing
 .pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
