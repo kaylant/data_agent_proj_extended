@@ -1,11 +1,12 @@
 # Data Analysis Agent (Extended)
 
-A production-ready GUI application for analyzing pipeline data using LangGraph and Anthropic/OpenAI LLMs.
+A production-ready GUI application for analyzing pipeline data using LangGraph and Anthropic/OpenAI LLMs, featuring Auth0 SSO authentication.
 
 ## Features
 
 - **React frontend** with Tailwind CSS
 - **FastAPI backend** with LangGraph agent
+- **Auth0 SSO** authentication
 - **Docker support** for easy deployment
 - **Multi-turn conversations** with memory
 - **12 analysis tools** including clustering, data quality checks, and robustness validation
@@ -14,42 +15,72 @@ A production-ready GUI application for analyzing pipeline data using LangGraph a
 
 ### Prerequisites
 - Docker and Docker Compose
+- Auth0 account (free tier works)
 
-### Run with Docker (Recommended)
-
-1. Clone the repo:
+### 1. Clone the repo
 ```bash
 git clone https://github.com/yourusername/data-agent-extended.git
 cd data-agent-extended
 ```
 
-2. Create `.env` file:
+### 2. Set up Auth0
+
+1. Create an account at https://auth0.com
+2. Create a new **Single Page Application**:
+   - Go to Applications → Create Application
+   - Name: "Data Analysis Agent"
+   - Type: Single Page Application
+3. Configure the application settings:
+   - Allowed Callback URLs: `http://localhost:5173, http://localhost:3000`
+   - Allowed Logout URLs: `http://localhost:5173, http://localhost:3000`
+   - Allowed Web Origins: `http://localhost:5173, http://localhost:3000`
+4. Create an **API**:
+   - Go to Applications → APIs → Create API
+   - Name: "Data Analysis Agent API"
+   - Identifier: `https://data-agent-api`
+5. Authorize the application:
+   - Go to APIs → Data Analysis Agent API → Application Access
+   - Set "Data Analysis Agent" User Access to **Authorized**
+
+### 3. Configure environment variables
+
+Create `.env` in project root:
 ```env
-ANTHROPIC_API_KEY=your-key-here
+ANTHROPIC_API_KEY=your-anthropic-key
+
+# Auth0
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_AUDIENCE=https://data-agent-api
 ```
 
-3. Add dataset:
+Create `frontend/.env`:
+```env
+VITE_AUTH0_DOMAIN=your-tenant.auth0.com
+VITE_AUTH0_CLIENT_ID=your-client-id
+VITE_AUTH0_AUDIENCE=https://data-agent-api
+```
+
+### 4. Add dataset
 ```bash
 mkdir -p data
 # Place pipeline_dataset.parquet in ./data/
 ```
 
-4. Run:
+### 5. Run with Docker
+
+**Production:**
 ```bash
 docker-compose up --build
 ```
 
-5. Open `http://localhost:3000`
+Open `http://localhost:3000`
 
-### Development Mode
-
-For hot-reloading during development:
+**Development (with hot reload):**
 ```bash
 docker-compose -f docker-compose.dev.yml up --build
 ```
 
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:8000`
+Open `http://localhost:5173`
 
 ## Local Development (Without Docker)
 
@@ -68,12 +99,12 @@ npm run dev
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/schema` | GET | Dataset schema and info |
-| `/chat` | POST | Send a message to the agent |
-| `/clear/{thread_id}` | POST | Clear conversation history |
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/health` | GET | No | Health check |
+| `/schema` | GET | Yes | Dataset schema and info |
+| `/chat` | POST | Yes | Send a message to the agent |
+| `/clear/{thread_id}` | POST | Yes | Clear conversation history |
 
 ## Project Structure
 ```
@@ -96,7 +127,8 @@ data-agent-extended/
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx
-│   │   └── ...
+│   │   ├── main.tsx
+│   │   └── index.css
 │   ├── Dockerfile
 │   ├── Dockerfile.dev
 │   ├── nginx.conf
@@ -135,8 +167,36 @@ data-agent-extended/
 - "Run a data quality report"
 - "Find segments of pipelines by total_scheduled_quantity"
 - "Run robustness checks on top pipelines"
+- "Check if the relationship between design_capacity and total_scheduled_quantity is confounded by region"
 
 ## Testing
 ```bash
 uv run pytest -v
+```
+
+## Architecture
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Browser   │────▶│   React     │────▶│   Auth0     │
+│             │◀────│   Frontend  │◀────│   SSO       │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           │
+                           │ JWT Token
+                           ▼
+                    ┌─────────────┐
+                    │   FastAPI   │
+                    │   Backend   │
+                    └─────────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │  LangGraph  │
+                    │   Agent     │
+                    └─────────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   Pandas    │
+                    │   Tools     │
+                    └─────────────┘
 ```

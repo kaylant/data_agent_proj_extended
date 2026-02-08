@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import axios from 'axios'
 
 const API_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000'
@@ -16,6 +17,8 @@ interface SchemaInfo {
 }
 
 function App() {
+  const { isAuthenticated, isLoading, loginWithRedirect, logout, getAccessTokenSilently, user } = useAuth0()
+  
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -32,15 +35,30 @@ function App() {
     "Find segments of pipelines by total_scheduled_quantity",
   ]
 
-  useEffect(() => {
-    // Fetch schema on mount
-    axios.get(`${API_URL}/schema`).then((res) => {
-      setSchema(res.data)
+  // Create authenticated API client
+  const getApi = async () => {
+    const token = await getAccessTokenSilently()
+    return axios.create({
+      baseURL: API_URL,
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     })
-  }, [])
+  }
 
   useEffect(() => {
-    // Scroll to bottom on new messages
+    if (isAuthenticated) {
+      getApi().then((api) => {
+        api.get('/schema').then((res) => {
+          setSchema(res.data)
+        }).catch((err) => {
+          console.error('Failed to fetch schema:', err)
+        })
+      })
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
@@ -53,7 +71,8 @@ function App() {
     setLoading(true)
 
     try {
-      const res = await axios.post(`${API_URL}/chat`, {
+      const api = await getApi()
+      const res = await api.post('/chat', {
         message,
         thread_id: threadId,
       })
@@ -70,7 +89,7 @@ function App() {
       console.error('Error:', error)
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: 'Error: Failed to get response' },
+        { role: 'assistant', content: 'Error: Failed to get response.' },
       ])
     } finally {
       setLoading(false)
@@ -79,10 +98,11 @@ function App() {
 
   const clearConversation = async () => {
     if (threadId) {
-      const res = await axios.post(`${API_URL}/clear/${threadId}`)
-      setThreadId(res.data.new_thread_id)
+      const api = await getApi()
+      await api.post(`/clear/${threadId}`)
     }
     setMessages([])
+    setThreadId(null)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -92,25 +112,64 @@ function App() {
     }
   }
 
+  // Show loading while Auth0 initializes
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    )
+  }
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    const handleLogin = () => {
+      console.log('Sign In clicked, calling loginWithRedirect...')
+      loginWithRedirect()
+        .then(() => console.log('loginWithRedirect completed'))
+        .catch((err) => console.error('loginWithRedirect error:', err))
+    }
+  
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold mb-4">Data Analysis Agent</h1>
+          <p className="text-gray-600 mb-8">Sign in to analyze pipeline data</p>
+          <button
+            onClick={handleLogin}
+            className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 text-lg"
+          >
+            Sign In
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
       <div className="w-72 bg-gray-900 text-white p-4 flex flex-col">
-        <h1 className="text-xl font-bold mb-6">Data Analysis Agent</h1>
+        <h1 className="text-xl font-bold mb-2">Data Analysis Agent</h1>
+        
+        {/* User info */}
+        <div className="text-sm text-gray-400 mb-4">
+          {user?.email}
+        </div>
 
         {schema && (
           <div className="mb-6">
             <div className="text-sm text-gray-400 mb-2">Dataset</div>
             <div className="text-2xl font-bold">{schema.rows.toLocaleString()}</div>
             <div className="text-sm text-gray-400">rows × {schema.columns} columns</div>
-
+            
             <button
               onClick={() => setShowSchema(!showSchema)}
               className="mt-2 text-sm text-blue-400 hover:text-blue-300"
             >
               {showSchema ? 'Hide' : 'View'} Schema
             </button>
-
+            
             {showSchema && (
               <pre className="mt-2 text-xs bg-gray-800 p-2 rounded overflow-auto max-h-64">
                 {schema.schema_text}
@@ -121,7 +180,7 @@ function App() {
 
         <button
           onClick={clearConversation}
-          className="w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 rounded mb-6"
+          className="w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 rounded mb-4"
         >
           Clear Conversation
         </button>
@@ -139,6 +198,14 @@ function App() {
             </button>
           ))}
         </div>
+
+        {/* Logout button at bottom */}
+        <button
+          onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+          className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 rounded mt-4"
+        >
+          Sign Out
+        </button>
       </div>
 
       {/* Main Chat Area */}
@@ -165,7 +232,7 @@ function App() {
                   >
                     {msg.role === 'assistant' ? (
                       <div className="prose prose-sm max-w-none">
-                        <div dangerouslySetInnerHTML={{
+                        <div dangerouslySetInnerHTML={{ 
                           __html: msg.content
                             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                             .replace(/### (.*?)(\n|$)/g, '<h3>$1</h3>')
