@@ -25,6 +25,7 @@ function App() {
   const [threadId, setThreadId] = useState<string | null>(null)
   const [schema, setSchema] = useState<SchemaInfo | null>(null)
   const [showSchema, setShowSchema] = useState(false)
+  const [streamingContent, setStreamingContent] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const exampleQueries = [
@@ -35,7 +36,6 @@ function App() {
     "Find segments of pipelines by total_scheduled_quantity",
   ]
 
-  // Create authenticated API client
   const getApi = async () => {
     const token = await getAccessTokenSilently()
     return axios.create({
@@ -60,7 +60,7 @@ function App() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, streamingContent])
 
   const sendMessage = async (message: string) => {
     if (!message.trim() || loading) return
@@ -69,28 +69,78 @@ function App() {
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setLoading(true)
+    setStreamingContent('')
 
     try {
-      const api = await getApi()
-      const res = await api.post('/chat', {
-        message,
-        thread_id: threadId,
+      const token = await getAccessTokenSilently()
+      
+      const response = await fetch(`${API_URL}/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          message,
+          thread_id: threadId,
+        }),
       })
 
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: res.data.response,
-        time: res.data.time_seconds,
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      setMessages((prev) => [...prev, assistantMessage])
-      setThreadId(res.data.thread_id)
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let fullContent = ''
+      let responseTime = 0
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n')
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                
+                if (data.type === 'thread_id') {
+                  setThreadId(data.thread_id)
+                } else if (data.type === 'content') {
+                  fullContent += data.content
+                  setStreamingContent(fullContent)
+                } else if (data.type === 'done') {
+                  responseTime = data.time_seconds
+                } else if (data.type === 'error') {
+                  console.error('Stream error:', data.error)
+                  fullContent = `Error: ${data.error}`
+                }
+              } catch (e) {
+                // Ignore parse errors for incomplete chunks
+              }
+            }
+          }
+        }
+      }
+
+      // Add completed message
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: fullContent, time: responseTime },
+      ])
+      setStreamingContent('')
+
     } catch (error) {
       console.error('Error:', error)
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: 'Error: Failed to get response.' },
       ])
+      setStreamingContent('')
     } finally {
       setLoading(false)
     }
@@ -112,7 +162,6 @@ function App() {
     }
   }
 
-  // Show loading while Auth0 initializes
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -121,22 +170,14 @@ function App() {
     )
   }
 
-  // Show login screen if not authenticated
   if (!isAuthenticated) {
-    const handleLogin = () => {
-      console.log('Sign In clicked, calling loginWithRedirect...')
-      loginWithRedirect()
-        .then(() => console.log('loginWithRedirect completed'))
-        .catch((err) => console.error('loginWithRedirect error:', err))
-    }
-  
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
           <h1 className="text-3xl font-bold mb-4">Data Analysis Agent</h1>
           <p className="text-gray-600 mb-8">Sign in to analyze pipeline data</p>
           <button
-            onClick={handleLogin}
+            onClick={() => loginWithRedirect()}
             className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 text-lg"
           >
             Sign In
@@ -152,7 +193,6 @@ function App() {
       <div className="w-72 bg-gray-900 text-white p-4 flex flex-col">
         <h1 className="text-xl font-bold mb-2">Data Analysis Agent</h1>
         
-        {/* User info */}
         <div className="text-sm text-gray-400 mb-4">
           {user?.email}
         </div>
@@ -199,7 +239,6 @@ function App() {
           ))}
         </div>
 
-        {/* Logout button at bottom */}
         <button
           onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
           className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 rounded mt-4"
@@ -212,9 +251,9 @@ function App() {
       <div className="flex-1 flex flex-col">
         {/* Messages */}
         <div className="flex-1 overflow-auto p-6">
-          {messages.length === 0 ? (
+          {messages.length === 0 && !streamingContent ? (
             <div className="text-center text-gray-400 mt-20">
-              <div>Welcome</div>
+              <div>Ask a question about the pipeline data</div>
             </div>
           ) : (
             <div className="max-w-4xl mx-auto space-y-4">
@@ -251,13 +290,33 @@ function App() {
                   </div>
                 </div>
               ))}
-              {loading && (
+              
+              {/* Streaming message */}
+              {streamingContent && (
+                <div className="flex justify-start">
+                  <div className="max-w-[80%] rounded-lg p-4 bg-white border border-gray-200 shadow-sm">
+                    <div className="prose prose-sm max-w-none">
+                      <div dangerouslySetInnerHTML={{ 
+                        __html: streamingContent
+                          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                          .replace(/### (.*?)(\n|$)/g, '<h3>$1</h3>')
+                          .replace(/## (.*?)(\n|$)/g, '<h2>$1</h2>')
+                          .replace(/\n/g, '<br />')
+                      }} />
+                      <span className="inline-block w-2 h-4 bg-gray-400 animate-pulse ml-1" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Loading indicator (before streaming starts) */}
+              {loading && !streamingContent && (
                 <div className="flex justify-start">
                   <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                     <div className="flex items-center space-x-2">
                       <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                     </div>
                   </div>
                 </div>

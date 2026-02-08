@@ -1,12 +1,13 @@
 # Data Analysis Agent (Extended)
 
-A production-ready GUI application for analyzing pipeline data using LangGraph and Anthropic/OpenAI LLMs, featuring Auth0 SSO authentication.
+A production-ready GUI application for analyzing pipeline data using LangGraph and Anthropic/OpenAI LLMs, featuring Auth0 SSO authentication and streaming responses.
 
 ## Features
 
 - **React frontend** with Tailwind CSS
 - **FastAPI backend** with LangGraph agent
 - **Auth0 SSO** authentication
+- **Streaming responses** for real-time feedback
 - **Docker support** for easy deployment
 - **Multi-turn conversations** with memory
 - **12 analysis tools** including clustering, data quality checks, and robustness validation
@@ -103,7 +104,8 @@ npm run dev
 |----------|--------|------|-------------|
 | `/health` | GET | No | Health check |
 | `/schema` | GET | Yes | Dataset schema and info |
-| `/chat` | POST | Yes | Send a message to the agent |
+| `/chat` | POST | Yes | Send a message (non-streaming) |
+| `/chat/stream` | POST | Yes | Send a message (streaming SSE) |
 | `/clear/{thread_id}` | POST | Yes | Clear conversation history |
 
 ## Project Structure
@@ -181,7 +183,7 @@ uv run pytest -v
 │             │◀────│   Frontend  │◀────│   SSO       │
 └─────────────┘     └─────────────┘     └─────────────┘
                            │
-                           │ JWT Token
+                           │ JWT Token + SSE Stream
                            ▼
                     ┌─────────────┐
                     │   FastAPI   │
@@ -199,4 +201,30 @@ uv run pytest -v
                     │   Pandas    │
                     │   Tools     │
                     └─────────────┘
+```
+
+## Deployment
+
+### AWS (Recommended)
+
+For production deployment on AWS:
+
+1. **ECR** - Store Docker images
+2. **ECS Fargate** - Run containers
+3. **ALB** - Load balancer with HTTPS
+4. **S3** - Store dataset files
+5. **Secrets Manager** - Store API keys
+6. **CloudWatch** - Logging and monitoring
+
+### Environment Variables for Production
+```env
+# Required
+ANTHROPIC_API_KEY=your-key
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_AUDIENCE=https://data-agent-api
+
+# Optional
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=your-langsmith-key
+LANGCHAIN_PROJECT=data-agent-prod
 ```
