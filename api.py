@@ -12,10 +12,10 @@ from src.data_loader import get_schema_summary
 # Initialize FastAPI
 app = FastAPI(title="Data Analysis Agent API")
 
-# CORS for React frontend
+# CORS for React frontend - must be before routes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,9 +67,7 @@ def chat(request: ChatRequest):
         config={"configurable": {"thread_id": thread_id}},
     )
     elapsed = time.time() - start_time
-
     response = result["messages"][-1].content
-
     return ChatResponse(
         response=response,
         thread_id=thread_id,

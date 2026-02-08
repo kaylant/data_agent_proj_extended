@@ -96,7 +96,7 @@ function App() {
     <div className="flex h-screen">
       {/* Sidebar */}
       <div className="w-72 bg-gray-900 text-white p-4 flex flex-col">
-        <h1 className="text-xl font-bold mb-6">📊 Data Analysis Agent</h1>
+        <h1 className="text-xl font-bold mb-6">Data Analysis Agent</h1>
 
         {schema && (
           <div className="mb-6">
@@ -123,7 +123,7 @@ function App() {
           onClick={clearConversation}
           className="w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 rounded mb-6"
         >
-          🗑️ Clear Conversation
+          Clear Conversation
         </button>
 
         <div className="text-sm text-gray-400 mb-2">Example Queries</div>
@@ -147,8 +147,7 @@ function App() {
         <div className="flex-1 overflow-auto p-6">
           {messages.length === 0 ? (
             <div className="text-center text-gray-400 mt-20">
-              <div className="text-4xl mb-4">💬</div>
-              <div>Ask a question about the pipeline data</div>
+              <div>Welcome</div>
             </div>
           ) : (
             <div className="max-w-4xl mx-auto space-y-4">
@@ -175,7 +174,7 @@ function App() {
                         }} />
                         {msg.time && (
                           <div className="text-xs text-gray-400 mt-2">
-                            ⏱️ {msg.time}s
+                            {msg.time}s
                           </div>
                         )}
                       </div>
