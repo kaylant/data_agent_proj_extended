@@ -1,48 +1,76 @@
-"""Data loading and schema inference"""
+"""Data loading utilities"""
 
+import os
+import pandas as pd
 from pathlib import Path
 
-import pandas as pd
+USE_DATABASE = os.getenv("USE_DATABASE", "false").lower() == "true"
+
+# Cache for schema - we only need to query this once
+_schema_cache = None
+_row_count_cache = None
 
 
-def load_dataset(path: str = "data/pipeline_dataset.parquet") -> pd.DataFrame:
-    """Load the dataset."""
-    filepath = Path(path)
-    if not filepath.exists():
-        raise FileNotFoundError(f"Dataset not found at {filepath}")
+def load_dataset() -> pd.DataFrame:
+    """Load the dataset from file or return a lazy database wrapper"""
+    if USE_DATABASE:
+        from src.database import get_dataframe_from_db, get_table_info
 
-    df = pd.read_parquet(filepath)
-    print(f"✓ Loaded {len(df):,} rows × {len(df.columns)} columns")
-    return df
+        # For database mode, we return a small sample for schema inference
+        # The actual queries will hit the database directly
+        print("Connecting to PostgreSQL...")
+        info = get_table_info()
+        print(f"✓ Connected to database with {info['row_count']:,} rows")
+
+        # Return small sample for schema inference only
+        df = get_dataframe_from_db(limit=1000)
+        df._is_sample = True  # Mark as sample
+        df._total_rows = info["row_count"]
+        return df
+    else:
+        data_dir = Path("data")
+        parquet_files = list(data_dir.glob("*.parquet"))
+
+        if not parquet_files:
+            raise FileNotFoundError(f"No parquet files found in {data_dir}")
+
+        df = pd.read_parquet(parquet_files[0])
+        print(f"✓ Loaded {len(df):,} rows × {len(df.columns)} columns from file")
+        return df
 
 
 def get_schema_summary(df: pd.DataFrame) -> str:
-    """Generate a concise schema summary for the LLM."""
-    lines = [
-        f"Dataset: {len(df):,} rows × {len(df.columns)} columns",
-        "",
-        "Columns:",
-    ]
+    """Generate a schema summary for the LLM"""
+    global _schema_cache, _row_count_cache
+
+    if _schema_cache is not None:
+        return _schema_cache
+
+    # Get actual row count
+    if hasattr(df, "_total_rows"):
+        row_count = df._total_rows
+    else:
+        row_count = len(df)
+
+    lines = [f"Dataset: {row_count:,} rows × {len(df.columns)} columns", "", "Columns:"]
 
     for col in df.columns:
         dtype = df[col].dtype
-        null_pct = df[col].isna().mean() * 100
+        null_pct = df[col].isnull().mean() * 100
 
-        # Get type-specific info
         if pd.api.types.is_numeric_dtype(df[col]):
-            info = f"range [{df[col].min():.2f}, {df[col].max():.2f}]"
+            min_val = df[col].min()
+            max_val = df[col].max()
+            lines.append(
+                f"  - {col} ({dtype}): range [{min_val:.2f}, {max_val:.2f}], {null_pct:.1f}% null"
+            )
         elif pd.api.types.is_datetime64_any_dtype(df[col]):
-            info = f"{df[col].min()} to {df[col].max()}"
+            min_val = df[col].min()
+            max_val = df[col].max()
+            lines.append(f"  - {col} ({dtype}): {min_val} to {max_val}, {null_pct:.1f}% null")
         else:
-            n_unique = df[col].nunique()
-            info = f"{n_unique} unique values"
+            unique_count = df[col].nunique()
+            lines.append(f"  - {col} ({dtype}): {unique_count} unique values, {null_pct:.1f}% null")
 
-        lines.append(f"  - {col} ({dtype}): {info}, {null_pct:.1f}% null")
-
-    return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    # Quick test for data loading and schema summary
-    df = load_dataset()
-    print("\n" + get_schema_summary(df))
+    _schema_cache = "\n".join(lines)
+    return _schema_cache
