@@ -1,6 +1,6 @@
 # Data Analysis Agent (Extended)
 
-A production-ready GUI application for analyzing pipeline data using LangGraph and Anthropic/OpenAI LLMs, featuring Auth0 SSO authentication and streaming responses.
+A production-ready GUI application for analyzing pipeline data using LangGraph and Anthropic/OpenAI LLMs, featuring Auth0 SSO authentication, streaming responses, and PostgreSQL database support.
 
 ## Features
 
@@ -8,9 +8,10 @@ A production-ready GUI application for analyzing pipeline data using LangGraph a
 - **FastAPI backend** with LangGraph agent
 - **Auth0 SSO** authentication
 - **Streaming responses** for real-time feedback
+- **PostgreSQL database** support (local Docker or AWS RDS)
 - **Docker support** for easy deployment
 - **Multi-turn conversations** with memory
-- **12 analysis tools** including clustering, data quality checks, and robustness validation
+- **13 analysis tools** including SQL queries, clustering, data quality checks, and robustness validation
 
 ## Quick Start
 
@@ -52,6 +53,10 @@ ANTHROPIC_API_KEY=your-anthropic-key
 # Auth0
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_AUDIENCE=https://data-agent-api
+
+# Database (optional - defaults to local Docker)
+# DATABASE_URL=postgresql://agent:agent_password@localhost:5432/pipeline_data
+# USE_DATABASE=false
 ```
 
 Create `frontend/.env`:
@@ -82,6 +87,49 @@ docker-compose -f docker-compose.dev.yml up --build
 ```
 
 Open `http://localhost:5173`
+
+## Data Storage Modes
+
+The application supports two data storage modes:
+
+### File Mode (Default)
+- Loads parquet file into memory at startup
+- Fast queries (data in RAM)
+- Best for: single-user, datasets that fit in memory
+- No additional setup required
+```bash
+uv run uvicorn api:app --reload
+```
+
+### Database Mode
+- Stores data in PostgreSQL
+- Queries execute via SQL
+- Best for: multi-user, larger datasets, production deployments
+- Requires PostgreSQL (local Docker or AWS RDS)
+```bash
+# Start local PostgreSQL
+docker-compose up db -d
+
+# Load data into database
+uv run python -c "
+from src.database import init_database, load_parquet_to_db
+init_database()
+load_parquet_to_db('data/pipeline_dataset.parquet', use_copy=True)
+"
+
+# Run with database mode
+USE_DATABASE=true uv run uvicorn api:app --reload
+```
+
+### AWS RDS Support
+
+The application is configured to work with AWS RDS PostgreSQL:
+```env
+DATABASE_URL=postgresql://user:password@your-instance.rds.amazonaws.com:5432/postgres
+USE_DATABASE=true
+```
+
+**Note:** For optimal performance with 16M+ rows, use at least `db.t3.medium` instance. Free tier (`db.t3.micro`) will be slow for complex queries.
 
 ## Local Development (Without Docker)
 
@@ -116,6 +164,7 @@ data-agent-extended/
 │   │   ├── __init__.py
 │   │   ├── _shared.py
 │   │   ├── pandas_tool.py
+│   │   ├── sql_tool.py
 │   │   ├── stats.py
 │   │   ├── outliers.py
 │   │   ├── time_series.py
@@ -124,6 +173,7 @@ data-agent-extended/
 │   │   ├── data_quality.py
 │   │   └── validation.py
 │   ├── agent.py
+│   ├── database.py
 │   ├── data_loader.py
 │   └── main.py
 ├── frontend/
@@ -149,6 +199,7 @@ data-agent-extended/
 | Tool | Description |
 |------|-------------|
 | `execute_pandas_code` | Run arbitrary pandas code |
+| `execute_sql_query` | Run SQL queries (database mode) |
 | `get_column_stats` | Column statistics |
 | `find_correlations` | Correlation analysis |
 | `detect_outliers` | Outlier detection (IQR/z-score) |
@@ -190,6 +241,13 @@ uv run pytest -v
                     │   Backend   │
                     └─────────────┘
                            │
+              ┌────────────┴────────────┐
+              ▼                         ▼
+       ┌─────────────┐          ┌─────────────┐
+       │  Parquet    │          │ PostgreSQL  │
+       │  (File Mode)│          │ (DB Mode)   │
+       └─────────────┘          └─────────────┘
+                           │
                            ▼
                     ┌─────────────┐
                     │  LangGraph  │
@@ -198,8 +256,8 @@ uv run pytest -v
                            │
                            ▼
                     ┌─────────────┐
-                    │   Pandas    │
                     │   Tools     │
+                    │ (SQL/Pandas)│
                     └─────────────┘
 ```
 
@@ -212,9 +270,10 @@ For production deployment on AWS:
 1. **ECR** - Store Docker images
 2. **ECS Fargate** - Run containers
 3. **ALB** - Load balancer with HTTPS
-4. **S3** - Store dataset files
-5. **Secrets Manager** - Store API keys
-6. **CloudWatch** - Logging and monitoring
+4. **RDS PostgreSQL** - Database (db.t3.medium or larger)
+5. **S3** - Store dataset files (optional)
+6. **Secrets Manager** - Store API keys
+7. **CloudWatch** - Logging and monitoring
 
 ### Environment Variables for Production
 ```env
@@ -222,6 +281,10 @@ For production deployment on AWS:
 ANTHROPIC_API_KEY=your-key
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_AUDIENCE=https://data-agent-api
+
+# Database
+DATABASE_URL=postgresql://user:pass@rds-endpoint:5432/dbname
+USE_DATABASE=true
 
 # Optional
 LANGCHAIN_TRACING_V2=true
