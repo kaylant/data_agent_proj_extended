@@ -227,6 +227,86 @@ data-agent-extended/
 uv run pytest -v
 ```
 
+## Production Considerations
+
+This application is designed with production deployment in mind. Here are the recommended AWS services and configurations:
+
+### Secrets Management
+
+Use AWS Secrets Manager for sensitive configuration:
+```python
+# Example: Fetching secrets in production
+import boto3
+import json
+
+def get_secrets():
+    client = boto3.client('secretsmanager', region_name='us-east-2')
+    response = client.get_secret_value(SecretId='data-agent/prod')
+    return json.loads(response['SecretString'])
+
+# Secrets to store:
+# - ANTHROPIC_API_KEY
+# - AUTH0_CLIENT_SECRET
+# - DATABASE_URL
+```
+
+### Logging & Monitoring
+
+CloudWatch integration for observability:
+```python
+# Example: Structured logging for CloudWatch
+import logging
+import json
+
+class CloudWatchFormatter(logging.Formatter):
+    def format(self, record):
+        return json.dumps({
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "logger": record.name,
+            "trace_id": getattr(record, 'trace_id', None),
+        })
+
+# Key metrics to track:
+# - Query latency (p50, p95, p99)
+# - Tool usage by type
+# - Error rates by endpoint
+# - Token usage per request
+```
+
+### Recommended CloudWatch Alarms
+
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| API 5xx errors | > 5/min | Alert |
+| Query latency p95 | > 30s | Alert |
+| Memory utilization | > 80% | Scale up |
+| Database connections | > 80% pool | Alert |
+
+### Infrastructure as Code
+
+For production deployment, use Terraform or AWS CDK:
+```hcl
+# Example Terraform resources
+- aws_ecs_cluster
+- aws_ecs_service (Fargate)
+- aws_lb (Application Load Balancer)
+- aws_rds_cluster (PostgreSQL)
+- aws_secretsmanager_secret
+- aws_cloudwatch_log_group
+- aws_cloudwatch_metric_alarm
+```
+
+### Scaling Considerations
+
+| Component | Scaling Strategy |
+|-----------|------------------|
+| Backend API | ECS auto-scaling on CPU/memory |
+| Database | RDS read replicas or Aurora Serverless |
+| Frontend | S3 + CloudFront (infinitely scalable) |
+| LLM calls | Queue with SQS for rate limiting |
+
 ## Architecture
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
